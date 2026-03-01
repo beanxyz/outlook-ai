@@ -39,8 +39,8 @@ class OutlookGraphClient:
         self.client_id = client_id
         self.authority = authority
         
-        # Load existing MSAL cache if available
-        cache = msal.TokenCache()
+        # Use SerializableTokenCache for serialization support
+        cache = msal.SerializableTokenCache()
         if MSAL_CACHE_FILE.exists():
             try:
                 cache.deserialize(open(MSAL_CACHE_FILE, "rb").read())
