@@ -591,25 +591,28 @@ def cache_clear() -> None:
 
 @app.command()
 def run_now(
-    days: int = typer.Option(3, "--days", "-d", help="Number of days to scan"),
-    count: int = typer.Option(30, "--count", "-c", help="Max emails to process"),
+    days: int = typer.Option(5, "--days", "-d", help="Number of days to scan"),
+    count: int = typer.Option(50, "--count", "-c", help="Max emails to process"),
+    push_vip: bool = typer.Option(True, "--push-vip/--no-push-vip", help="Push VIP emails to Telegram"),
+    push_summary: bool = typer.Option(False, "--summary/--no-summary", help="Push daily summary to Telegram"),
 ) -> None:
-    """Run full email scan with push notifications (VIP + Daily Summary).
+    """Scan unread emails in last N days and push VIP emails to Telegram.
     
     This command:
-    1. Fetches recent emails
-    2. Checks VIP rules (school/payment) -> Push immediately
-    3. AI classifies emails
-    4. Generates daily summary -> Push to Telegram
+    1. Fetches UNREAD emails from last N days
+    2. Checks VIP rules (school/payment) -> Push immediately to Telegram
+    3. Optionally generates daily summary -> Push to Telegram
+    
+    Default: scan 5 days, push only VIP emails (important).
     """
-    console.print("\n[bold]🚀 Running full email scan with push notifications...[/]\n")
+    console.print(f"\n[bold]🚀 Scanning unread emails from last {days} days...[/]\n")
     
     config = get_config()
     
     # Check Telegram config
     if not config.use_telegram:
         console.print("[red]✗ Telegram not configured. Set TELEGRAM_TOKEN and TELEGRAM_CHAT_ID in .env[/red]")
-        console.print("[dim]Skipping push notifications, showing results only.[/dim]")
+        console.print("[dim]Showing results only, no push.[/dim]")
         pusher = None
     else:
         console.print(f"[green]✓ Telegram configured: {config.telegram_chat_id}[/green]")
@@ -629,15 +632,19 @@ def run_now(
         since = date.today() - timedelta(days=days)
         
         with mail:
-            emails = mail.fetch_by_date_range(since=since)
+            # Fetch all emails in date range, then filter for unread
+            all_emails = mail.fetch_by_date_range(since=since)
             
-            if not emails:
-                console.print("[yellow]No emails found.[/yellow]")
+            if not all_emails:
+                console.print("[yellow]No emails found in the specified period.[/yellow]")
                 return
+            
+            # Filter to unread only
+            emails = [e for e in all_emails if not e.is_read]
             
             # Limit emails
             emails = emails[:count]
-            console.print(f"[dim]Processing {len(emails)} emails...[/]\n")
+            console.print(f"[dim]Found {len(all_emails)} emails, {len(emails)} unread. Processing...[/]\n")
             
             # Initialize VIP engine
             vip_engine = VIPRuleEngine()
@@ -645,6 +652,7 @@ def run_now(
             # Track stats
             stats = {
                 "total": len(emails),
+                "unread": len(emails),
                 "school": 0,
                 "payment": 0,
                 "spam": 0,
@@ -652,16 +660,15 @@ def run_now(
             }
             
             vip_emails = []
-            action_items = []
             
-            # Process each email
+            # Process each email - check VIP rules
             for email in emails:
                 # Check VIP rules first
                 vip_match = vip_engine.check(email)
                 
                 if vip_match:
-                    # VIP matched - push immediately
-                    if pusher:
+                    # VIP matched
+                    if pusher and push_vip:
                         # Get AI summary
                         ai_summary = ai.summarize(email) if ai.check_connection() else ""
                         
@@ -669,7 +676,7 @@ def run_now(
                         success = pusher.push_vip_email(email, vip_match, ai_summary)
                         if success:
                             stats["vip_pushed"] += 1
-                            console.print(f"  {vip_match.push_emoji} Pushed: {email.subject[:40]}")
+                            console.print(f"  {vip_match.push_emoji} Pushed: {email.subject[:50]}")
                     
                     # Update stats
                     if vip_match.category == "school":
@@ -680,27 +687,23 @@ def run_now(
                     vip_emails.append((email, vip_match))
                 else:
                     # Check if spam (simple keyword check)
-                    if any(kw in email.subject.lower() for kw in ["spam", "unsubscribe", "promo"]):
+                    if any(kw in email.subject.lower() for kw in ["spam", "unsubscribe", "promo", "newsletter"]):
                         stats["spam"] += 1
-            
-            # Generate AI summary for non-VIP emails
-            non_vip_emails = [e for e, _ in vip_emails] if vip_emails else emails
-            summary_text = ai.batch_summarize(emails, max_emails=10)
-            
-            # Extract action items
-            action_items = ai.extract_action_items(emails)
             
             # Display summary in console
             console.print(Panel(
-                f"Total: {stats['total']} | 🏫 School: {stats['school']} | 💰 Payment: {stats['payment']} | 🚫 Spam: {stats['spam']}",
+                f"📧 Unread: {stats['unread']} | 🏫 School: {stats['school']} | 💰 Payment: {stats['payment']} | 🚫 Spam: {stats['spam']}",
                 title="📊 Stats",
                 border_style="blue",
             ))
             
-            console.print(f"\n[dim]{summary_text[:500]}...[/]\n")
-            
-            # Push daily summary to Telegram
-            if pusher:
+            # Push daily summary to Telegram (optional, off by default)
+            if pusher and push_summary:
+                # Generate summary for non-VIP emails
+                non_vip = [e for e, _ in vip_emails] if vip_emails else emails
+                summary_text = ai.batch_summarize(non_vip, max_emails=10)
+                action_items = ai.extract_action_items(non_vip)
+                
                 success = pusher.push_daily_summary(summary_text, action_items, stats)
                 if success:
                     console.print("[green]✓ Daily summary pushed to Telegram![/green]")
