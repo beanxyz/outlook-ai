@@ -3,7 +3,8 @@
 from datetime import date, datetime
 from typing import List, Optional
 import logging
-import urllib.parse
+import os
+import pathlib
 
 import msal
 import requests
@@ -12,6 +13,10 @@ from outlook_ai.models import Email
 
 
 logger = logging.getLogger(__name__)
+
+# Token cache file location
+CACHE_DIR = pathlib.Path.home() / ".outlook-ai"
+CACHE_FILE = CACHE_DIR / "token_cache.json"
 
 
 class OutlookGraphClient:
@@ -33,11 +38,37 @@ class OutlookGraphClient:
         """
         self.client_id = client_id
         self.authority = authority
+        
+        # Load token cache from disk if exists
+        cache = self._load_cache()
+        
         self._app = msal.PublicClientApplication(
             client_id=client_id,
             authority=authority,
+            token_cache=cache,
         )
         self._token: Optional[str] = None
+    
+    def _load_cache(self) -> msal.TokenCache:
+        """Load token cache from disk."""
+        cache = msal.TokenCache()
+        if CACHE_FILE.exists():
+            try:
+                cache.deserialize(open(CACHE_FILE, "r").read())
+                logger.info("Loaded token cache from %s", CACHE_FILE)
+            except Exception as e:
+                logger.warning("Failed to load token cache: %s", e)
+        return cache
+    
+    def _save_cache(self) -> None:
+        """Save token cache to disk."""
+        try:
+            CACHE_DIR.mkdir(parents=True, exist_ok=True)
+            cache_data = self._app.token_cache.serialize()
+            open(CACHE_FILE, "w").write(cache_data)
+            logger.info("Saved token cache to %s", CACHE_FILE)
+        except Exception as e:
+            logger.warning("Failed to save token cache: %s", e)
     
     def __enter__(self):
         """Enter context manager."""
@@ -69,6 +100,8 @@ class OutlookGraphClient:
         result = self._app.acquire_token_interactive(scopes=self.scopes)
         if "access_token" in result:
             self._token = result["access_token"]
+            # Save cache after new token acquired
+            self._save_cache()
             return self._token
         raise RuntimeError(f"Failed to get token: {result.get('error')}")
     
