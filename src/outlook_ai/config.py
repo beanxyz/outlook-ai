@@ -2,7 +2,7 @@
 
 import os
 from pathlib import Path
-from typing import Optional
+from typing import Optional, List, Dict
 
 from pydantic import BaseModel
 from dotenv import load_dotenv
@@ -39,6 +39,12 @@ class Config(BaseModel):
     
     # Cache settings
     cache_dir: str = "~/.outlook-ai"
+    
+    # Classification keywords (can be configured in .env or vip_rules.yaml)
+    spam_keywords: List[str] = ["casino", "winner", "prize", "bonus", "free spins", "jackpot", "gambling", "lottery"]
+    bill_keywords: List[str] = ["payment", "invoice", "receipt", "due"]
+    work_keywords: List[str] = ["linkedin", "job", "hiring", "resume", "interview"]
+    notification_senders: List[str] = ["flexischools", "westpac", "notification", "alert", "balance"]
     
     @property
     def use_graph_api(self) -> bool:
@@ -92,6 +98,22 @@ SCAN_DAYS={self.scan_days}
 _config: Optional[Config] = None
 
 
+def _parse_list_env(key: str, default: List[str]) -> List[str]:
+    """Parse list from environment variable (comma-separated).
+    
+    Args:
+        key: Environment variable name
+        default: Default list
+        
+    Returns:
+        List of strings
+    """
+    value = os.getenv(key, "")
+    if not value:
+        return default
+    return [item.strip() for item in value.split(",") if item.strip()]
+
+
 def get_config() -> Config:
     """Get or create configuration."""
     global _config
@@ -120,6 +142,11 @@ def get_config() -> Config:
             telegram_chat_id=os.getenv("TELEGRAM_CHAT_ID", ""),
             scan_days=int(os.getenv("SCAN_DAYS", "3")),
             cache_dir=os.getenv("CACHE_DIR", "~/.outlook-ai"),
+            # Classification keywords from environment
+            spam_keywords=_parse_list_env("SPAM_KEYWORDS", ["casino", "winner", "prize", "bonus", "free spins", "jackpot", "gambling", "lottery"]),
+            bill_keywords=_parse_list_env("BILL_KEYWORDS", ["payment", "invoice", "receipt", "due"]),
+            work_keywords=_parse_list_env("WORK_KEYWORDS", ["linkedin", "job", "hiring", "resume", "interview"]),
+            notification_senders=_parse_list_env("NOTIFICATION_SENDERS", ["flexischools", "westpac", "notification", "alert", "balance"]),
         )
     
     return _config

@@ -211,40 +211,39 @@ class OllamaEmailAI:
     
     def _classify_by_rules(self, email: Email) -> EmailClassification:
         """Classify email using simple keyword rules (fast fallback)."""
+        from outlook_ai.config import get_config
+        
+        config = get_config()
         sender = email.sender.lower()
         subject = email.subject.lower()
         body = email.body_text.lower()[:500]
         
-        # Check for spam/promotion
-        spam_keywords = ['casino', 'winner', 'prize', 'bonus', 'free spins', 'jackpot', 'gambling', 'lottery']
-        if any(kw in sender or kw in subject for kw in spam_keywords):
+        # Check for spam/promotion (use configurable keywords)
+        if any(kw in sender or kw in subject for kw in config.spam_keywords):
             return EmailClassification(
                 category=EmailCategory.SPAM,
                 priority=Priority.LOW,
                 reason="垃圾邮件/赌博推广",
             )
         
-        # Check for bills
-        bill_keywords = ['payment', 'invoice', 'receipt', 'due']
-        if any(kw in body for kw in bill_keywords):
+        # Check for bills (use configurable keywords)
+        if any(kw in body for kw in config.bill_keywords):
             return EmailClassification(
                 category=EmailCategory.BILL,
                 priority=Priority.HIGH,
                 reason="账单/付款通知",
             )
         
-        # Check for work emails
-        work_keywords = ['linkedin', 'job', 'hiring', 'resume', 'interview']
-        if any(kw in sender for kw in work_keywords):
+        # Check for work emails (use configurable keywords)
+        if any(kw in sender for kw in config.work_keywords):
             return EmailClassification(
                 category=EmailCategory.WORK,
                 priority=Priority.MEDIUM,
                 reason="LinkedIn招聘邮件",
             )
         
-        # Check for notifications
-        notif_keywords = ['flexischools', 'westpac', 'notification', 'alert', 'balance']
-        if any(kw in sender for kw in notif_keywords):
+        # Check for notifications (use configurable keywords)
+        if any(kw in sender for kw in config.notification_senders):
             return EmailClassification(
                 category=EmailCategory.NOTIFICATION,
                 priority=Priority.MEDIUM,
