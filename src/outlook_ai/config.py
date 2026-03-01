@@ -29,8 +29,9 @@ class Config(BaseModel):
     notion_token: str = ""
     notion_database_id: str = ""
     
-    # WeChat Push settings (V2)
-    pushplus_token: str = ""
+    # Telegram Push settings (V2)
+    telegram_token: str = ""
+    telegram_chat_id: str = ""
     
     # Scan settings (V2)
     scan_days: int = 3
@@ -49,9 +50,9 @@ class Config(BaseModel):
         return bool(self.notion_token and self.notion_database_id)
     
     @property
-    def use_wechat_push(self) -> bool:
-        """Check if WeChat push is enabled."""
-        return bool(self.pushplus_token)
+    def use_telegram(self) -> bool:
+        """Check if Telegram push is enabled."""
+        return bool(self.telegram_token and self.telegram_chat_id)
     
     def get_cache_db_path(self) -> Path:
         """Get cache database path."""
@@ -77,8 +78,9 @@ OLLAMA_TIMEOUT={self.ollama_timeout}
 NOTION_TOKEN={self.notion_token}
 NOTION_DATABASE_ID={self.notion_database_id}
 
-# WeChat Push (V2)
-PUSHPLUS_TOKEN={self.pushplus_token}
+# Telegram Push (V2)
+TELEGRAM_TOKEN={self.telegram_token}
+TELEGRAM_CHAT_ID={self.telegram_chat_id}
 
 # Scan Settings (V2)
 SCAN_DAYS={self.scan_days}
@@ -112,7 +114,8 @@ def get_config() -> Config:
             ollama_timeout=int(os.getenv("OLLAMA_TIMEOUT", "120")),
             notion_token=os.getenv("NOTION_TOKEN", ""),
             notion_database_id=os.getenv("NOTION_DATABASE_ID", ""),
-            pushplus_token=os.getenv("PUSHPLUS_TOKEN", ""),
+            telegram_token=os.getenv("TELEGRAM_TOKEN", ""),
+            telegram_chat_id=os.getenv("TELEGRAM_CHAT_ID", ""),
             scan_days=int(os.getenv("SCAN_DAYS", "3")),
             cache_dir=os.getenv("CACHE_DIR", "~/.outlook-ai"),
         )
