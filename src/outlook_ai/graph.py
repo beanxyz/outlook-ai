@@ -1,6 +1,5 @@
 """Microsoft Graph API client for Outlook."""
 
-import json
 from datetime import date, datetime
 from typing import List, Optional
 import logging
@@ -38,6 +37,15 @@ class OutlookGraphClient:
             authority=authority,
         )
         self._token: Optional[str] = None
+    
+    def __enter__(self):
+        """Enter context manager."""
+        return self
+    
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        """Exit context manager."""
+        self._token = None
+        return False
     
     def get_token_interactive(self) -> str:
         """Get token interactively."""
