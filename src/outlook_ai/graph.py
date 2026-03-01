@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 
 # MSAL cache file location (default location)
 CACHE_DIR = pathlib.Path.home() / ".outlook-ai"
-MSAL_CACHE_FILE = CACHE_DIR / "msal_cache.bin"
+MSAL_CACHE_FILE = CACHE_DIR / "msal_cache.json"
 
 
 class OutlookGraphClient:
@@ -43,7 +43,7 @@ class OutlookGraphClient:
         cache = msal.SerializableTokenCache()
         if MSAL_CACHE_FILE.exists():
             try:
-                cache.deserialize(open(MSAL_CACHE_FILE, "rb").read())
+                cache.deserialize(open(MSAL_CACHE_FILE, "r").read())
                 logger.info("Loaded MSAL cache from %s", MSAL_CACHE_FILE)
             except Exception as e:
                 logger.warning("Failed to load MSAL cache: %s", e)
@@ -60,7 +60,8 @@ class OutlookGraphClient:
         try:
             CACHE_DIR.mkdir(parents=True, exist_ok=True)
             cache_data = self._app.token_cache.serialize()
-            open(MSAL_CACHE_FILE, "wb").write(cache_data)
+            # serialize() returns str, need to encode to bytes
+            open(MSAL_CACHE_FILE, "w").write(cache_data)
             logger.info("Saved MSAL cache to %s", MSAL_CACHE_FILE)
         except Exception as e:
             logger.warning("Failed to save MSAL cache: %s", e)
@@ -83,7 +84,7 @@ class OutlookGraphClient:
                 scopes=self.scopes,
                 account=accounts[0]
             )
-            if "access_token" in result:
+            if result and "access_token" in result:
                 self._token = result["access_token"]
                 return self._token
         
@@ -93,12 +94,13 @@ class OutlookGraphClient:
     def get_token_interactive(self) -> str:
         """Get token interactively (opens browser)."""
         result = self._app.acquire_token_interactive(scopes=self.scopes)
-        if "access_token" in result:
+        if result and "access_token" in result:
             self._token = result["access_token"]
             # Save cache after new token acquired
             self._save_cache()
             return self._token
-        raise RuntimeError(f"Failed to get token: {result.get('error')}")
+        error_msg = result.get("error") if result else "Unknown"
+        raise RuntimeError(f"Failed to get token: {error_msg}")
     
     @property
     def scopes(self) -> List[str]:
