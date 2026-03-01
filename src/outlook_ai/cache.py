@@ -1,4 +1,4 @@
-"""Email cache using SQLite."""
+"""Email cache using SQLite with push deduplication."""
 
 import json
 import sqlite3
@@ -10,14 +10,15 @@ from outlook_ai.models import Email, ActionItem
 
 
 class EmailCache:
-    """SQLite-based email cache."""
+    """SQLite-based email cache with push deduplication."""
     
-    def __init__(self, db_path: str = "emails.db"):
+    def __init__(self, db_path: str = "~/.outlook-ai/cache.db"):
         """Initialize cache.
         
         Args:
             db_path: Path to SQLite database
         """
+        db_path = str(Path(db_path).expanduser())
         self.db_path = Path(db_path)
         self._init_db()
     
@@ -28,18 +29,27 @@ class EmailCache:
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
         
-        # Emails table
+        # Processed emails table
         cursor.execute("""
-            CREATE TABLE IF NOT EXISTS emails (
-                uid TEXT PRIMARY KEY,
+            CREATE TABLE IF NOT EXISTS processed_emails (
+                email_uid TEXT PRIMARY KEY,
                 subject TEXT,
                 sender TEXT,
-                sender_name TEXT,
-                sender_email TEXT,
-                date TEXT,
-                body_text TEXT,
-                is_read INTEGER,
-                cached_at TEXT
+                processed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                ai_category TEXT,
+                ai_priority TEXT,
+                vip_category TEXT
+            )
+        """)
+        
+        # Push log table (for deduplication)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS push_log (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                email_uid TEXT,
+                push_type TEXT,
+                pushed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(email_uid, push_type)
             )
         """)
         
@@ -47,81 +57,125 @@ class EmailCache:
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS action_items (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                task TEXT,
-                deadline TEXT,
-                from_email_subject TEXT,
-                priority TEXT,
                 email_uid TEXT,
-                created_at TEXT
+                title TEXT,
+                description TEXT,
+                deadline TEXT,
+                priority TEXT,
+                category TEXT,
+                synced_calendar BOOLEAN DEFAULT FALSE,
+                synced_notion BOOLEAN DEFAULT FALSE,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        
+        # AI results cache
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS ai_results (
+                email_uid TEXT,
+                task_type TEXT,
+                result TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (email_uid, task_type)
             )
         """)
         
         conn.commit()
         conn.close()
     
-    def cache_emails(self, emails: List[Email]) -> None:
-        """Cache emails.
+    # === Processed Email Methods ===
+    
+    def is_processed(self, email_uid: str) -> bool:
+        """Check if email has been processed.
         
         Args:
-            emails: List of emails to cache
+            email_uid: Email UID
+            
+        Returns:
+            True if already processed
         """
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
+        cursor.execute(
+            "SELECT 1 FROM processed_emails WHERE email_uid = ?", 
+            (email_uid,)
+        )
+        result = cursor.fetchone() is not None
+        conn.close()
+        return result
+
+    def mark_processed(
+        self, 
+        email: Email, 
+        category: str = "", 
+        priority: str = "", 
+        vip_category: str = ""
+    ) -> None:
+        """Mark email as processed.
         
-        for email in emails:
-            cursor.execute("""
-                INSERT OR REPLACE INTO emails (uid, subject, sender, sender_name, sender_email, date, body_text, is_read, cached_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, (
-                email.uid,
-                email.subject,
-                email.sender,
-                email.sender_name,
-                email.sender_email,
-                email.date.isoformat(),
-                email.body_text[:5000],  # Limit body size
-                1 if email.is_read else 0,
-                datetime.now().isoformat(),
-            ))
-        
+        Args:
+            email: Email object
+            category: AI category
+            priority: AI priority
+            vip_category: VIP category
+        """
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        cursor.execute(
+            """INSERT OR REPLACE INTO processed_emails
+               (email_uid, subject, sender, ai_category, ai_priority, vip_category)
+               VALUES (?, ?, ?, ?, ?, ?)""",
+            (email.uid, email.subject, email.sender, category, priority, vip_category)
+        )
         conn.commit()
         conn.close()
     
-    def get_cached_emails(self, limit: int = 50) -> List[Email]:
-        """Get cached emails.
+    # === Push Deduplication Methods ===
+    
+    def is_pushed(self, email_uid: str, push_type: str, dedup_hours: int = 24) -> bool:
+        """Check if push already sent (deduplication).
         
         Args:
-            limit: Maximum number of emails
+            email_uid: Email UID
+            push_type: Type of push (vip, payment, daily)
+            dedup_hours: Hours to deduplicate within
             
         Returns:
-            List of cached emails
+            True if already pushed within dedup window
         """
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
-        
-        cursor.execute("""
-            SELECT uid, subject, sender, sender_name, sender_email, date, body_text, is_read
-            FROM emails
-            ORDER BY date DESC
-            LIMIT ?
-        """, (limit,))
-        
-        emails = []
-        for row in cursor.fetchall():
-            email = Email(
-                uid=row[0],
-                subject=row[1],
-                sender=row[2],
-                sender_name=row[3],
-                sender_email=row[4],
-                date=datetime.fromisoformat(row[5]),
-                body_text=row[6],
-                is_read=bool(row[7]),
-            )
-            emails.append(email)
-        
+        cursor.execute(
+            """SELECT 1 FROM push_log
+               WHERE email_uid = ? AND push_type = ?
+               AND pushed_at > datetime('now', ?)""",
+            (email_uid, push_type, f"-{dedup_hours} hours")
+        )
+        result = cursor.fetchone() is not None
         conn.close()
-        return emails
+        return result
+
+    def log_push(self, email_uid: str, push_type: str) -> None:
+        """Log push notification.
+        
+        Args:
+            email_uid: Email UID
+            push_type: Type of push
+        """
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        try:
+            cursor.execute(
+                "INSERT OR REPLACE INTO push_log (email_uid, push_type) VALUES (?, ?)",
+                (email_uid, push_type)
+            )
+            conn.commit()
+        except Exception:
+            pass  # Ignore duplicate errors
+        finally:
+            conn.close()
+    
+    # === Action Items Methods ===
     
     def save_action_item(self, item: ActionItem) -> None:
         """Save action item.
@@ -133,15 +187,15 @@ class EmailCache:
         cursor = conn.cursor()
         
         cursor.execute("""
-            INSERT INTO action_items (task, deadline, from_email_subject, priority, email_uid, created_at)
+            INSERT INTO action_items (email_uid, title, description, deadline, priority, category)
             VALUES (?, ?, ?, ?, ?, ?)
         """, (
-            item.task,
+            item.source_email_uid,
+            item.title,
+            item.description,
             item.deadline,
-            item.from_email_subject,
-            item.priority.value,
-            item.email_uid,
-            datetime.now().isoformat(),
+            item.priority,
+            item.category,
         ))
         
         conn.commit()
@@ -157,7 +211,7 @@ class EmailCache:
         cursor = conn.cursor()
         
         cursor.execute("""
-            SELECT task, deadline, from_email_subject, priority, email_uid
+            SELECT email_uid, title, description, deadline, priority, category
             FROM action_items
             ORDER BY created_at DESC
         """)
@@ -165,24 +219,80 @@ class EmailCache:
         items = []
         for row in cursor.fetchall():
             item = ActionItem(
-                task=row[0],
-                deadline=row[1],
-                from_email_subject=row[2],
-                priority=row[3],
-                email_uid=row[4],
+                source_email_uid=row[0],
+                title=row[1],
+                description=row[2],
+                deadline=row[3],
+                priority=row[4],
+                category=row[5],
             )
             items.append(item)
         
         conn.close()
         return items
     
+    def get_pending_actions(self, category: str = None) -> List[ActionItem]:
+        """Get pending action items.
+        
+        Args:
+            category: Filter by category
+            
+        Returns:
+            List of pending action items
+        """
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        
+        if category:
+            cursor.execute("""
+                SELECT email_uid, title, description, deadline, priority, category
+                FROM action_items
+                WHERE synced_calendar = FALSE OR synced_notion = FALSE
+                AND category = ?
+                ORDER BY deadline ASC
+            """, (category,))
+        else:
+            cursor.execute("""
+                SELECT email_uid, title, description, deadline, priority, category
+                FROM action_items
+                WHERE synced_calendar = FALSE OR synced_notion = FALSE
+                ORDER BY deadline ASC
+            """)
+        
+        items = []
+        for row in cursor.fetchall():
+            item = ActionItem(
+                source_email_uid=row[0],
+                title=row[1],
+                description=row[2],
+                deadline=row[3],
+                priority=row[4],
+                category=row[5],
+            )
+            items.append(item)
+        
+        conn.close()
+        return items
+    
+    # === Cache Management ===
+    
     def clear_cache(self) -> None:
         """Clear all cached data."""
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
         
-        cursor.execute("DELETE FROM emails")
+        cursor.execute("DELETE FROM processed_emails")
+        cursor.execute("DELETE FROM push_log")
         cursor.execute("DELETE FROM action_items")
+        cursor.execute("DELETE FROM ai_results")
         
+        conn.commit()
+        conn.close()
+    
+    def clear_push_log(self) -> None:
+        """Clear push log only."""
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM push_log")
         conn.commit()
         conn.close()
