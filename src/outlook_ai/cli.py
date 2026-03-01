@@ -18,6 +18,8 @@ from outlook_ai.ai import OllamaEmailAI
 from outlook_ai.cache import EmailCache
 from outlook_ai.models import Priority, Email as MailEmail
 from outlook_ai.utils import truncate_string
+from outlook_ai.vip import VIPRuleEngine
+from outlook_ai.integrations.telegram import TelegramPusher
 
 # Rich console
 console = Console()
@@ -597,6 +599,129 @@ def cache_clear() -> None:
         
         console.print("[green]✓ Cache cleared successfully.[/green]")
         
+    except Exception as e:
+        console.print(f"[red]Error: {e}[/red]")
+        raise typer.Exit(1)
+
+
+@app.command()
+def run_now(
+    days: int = typer.Option(3, "--days", "-d", help="Number of days to scan"),
+    count: int = typer.Option(30, "--count", "-c", help="Max emails to process"),
+) -> None:
+    """Run full email scan with push notifications (VIP + Daily Summary).
+    
+    This command:
+    1. Fetches recent emails
+    2. Checks VIP rules (school/payment) -> Push immediately
+    3. AI classifies emails
+    4. Generates daily summary -> Push to Telegram
+    """
+    console.print("\n[bold]🚀 Running full email scan with push notifications...[/]\n")
+    
+    config = get_config()
+    
+    # Check Telegram config
+    if not config.use_telegram:
+        console.print("[red]✗ Telegram not configured. Set TELEGRAM_TOKEN and TELEGRAM_CHAT_ID in .env[/red]")
+        console.print("[dim]Skipping push notifications, showing results only.[/dim]")
+        pusher = None
+    else:
+        console.print(f"[green]✓ Telegram configured: {config.telegram_chat_id}[/green]")
+        pusher = TelegramPusher(
+            token=config.telegram_token,
+            chat_id=config.telegram_chat_id
+        )
+    
+    try:
+        mail, ai, cache, _ = get_clients()
+        
+        # Check Ollama connection
+        if not ai.check_connection():
+            console.print("[red]Cannot connect to Ollama. Make sure Ollama is running.[/red]")
+            raise typer.Exit(1)
+        
+        since = date.today() - timedelta(days=days)
+        
+        with mail:
+            emails = mail.fetch_by_date_range(since=since)
+            
+            if not emails:
+                console.print("[yellow]No emails found.[/yellow]")
+                return
+            
+            # Limit emails
+            emails = emails[:count]
+            console.print(f"[dim]Processing {len(emails)} emails...[/]\n")
+            
+            # Initialize VIP engine
+            vip_engine = VIPRuleEngine()
+            
+            # Track stats
+            stats = {
+                "total": len(emails),
+                "school": 0,
+                "payment": 0,
+                "spam": 0,
+                "vip_pushed": 0,
+            }
+            
+            vip_emails = []
+            action_items = []
+            
+            # Process each email
+            for email in emails:
+                # Check VIP rules first
+                vip_match = vip_engine.check(email)
+                
+                if vip_match:
+                    # VIP matched - push immediately
+                    if pusher:
+                        # Get AI summary
+                        ai_summary = ai.summarize(email) if ai.check_connection() else ""
+                        
+                        # Push VIP notification
+                        success = pusher.push_vip_email(email, vip_match, ai_summary)
+                        if success:
+                            stats["vip_pushed"] += 1
+                            console.print(f"  {vip_match.push_emoji} Pushed: {email.subject[:40]}")
+                    
+                    # Update stats
+                    if vip_match.category == "school":
+                        stats["school"] += 1
+                    elif vip_match.category == "payment":
+                        stats["payment"] += 1
+                    
+                    vip_emails.append((email, vip_match))
+                else:
+                    # Check if spam (simple keyword check)
+                    if any(kw in email.subject.lower() for kw in ["spam", "unsubscribe", "promo"]):
+                        stats["spam"] += 1
+            
+            # Generate AI summary for non-VIP emails
+            non_vip_emails = [e for e, _ in vip_emails] if vip_emails else emails
+            summary_text = ai.batch_summarize(emails, max_emails=10)
+            
+            # Extract action items
+            action_items = ai.extract_action_items(emails)
+            
+            # Display summary in console
+            console.print(Panel(
+                f"Total: {stats['total']} | 🏫 School: {stats['school']} | 💰 Payment: {stats['payment']} | 🚫 Spam: {stats['spam']}",
+                title="📊 Stats",
+                border_style="blue",
+            ))
+            
+            console.print(f"\n[dim]{summary_text[:500]}...[/]\n")
+            
+            # Push daily summary to Telegram
+            if pusher:
+                success = pusher.push_daily_summary(summary_text, action_items, stats)
+                if success:
+                    console.print("[green]✓ Daily summary pushed to Telegram![/green]")
+            
+            console.print(f"\n[bold green]✓ Done! VIP pushed: {stats['vip_pushed']}[/bold green]")
+            
     except Exception as e:
         console.print(f"[red]Error: {e}[/red]")
         raise typer.Exit(1)
