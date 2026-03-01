@@ -37,7 +37,7 @@ pip install -e .
 2. Add API Permissions:
    - Go to your app → API permissions
    - Add Microsoft Graph → Delegated permissions
-   - Add: `Mail.Read`, `Mail.ReadWrite`, `User.Read`
+   - Add: `Mail.Read`, `User.Read`
 
 3. Create Client Secret:
    - Go to Certificates & secrets

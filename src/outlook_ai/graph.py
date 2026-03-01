@@ -3,6 +3,7 @@
 from datetime import date, datetime
 from typing import List, Optional
 import logging
+import urllib.parse
 
 import msal
 import requests
@@ -118,10 +119,13 @@ class OutlookGraphClient:
         Returns:
             List of Email objects
         """
+        # Validate folder name
+        safe_folder = self._validate_folder(folder)
+        
         try:
             result = self._make_request(
                 "GET",
-                f"/me/mailFolders/{folder}/messages",
+                f"/me/mailFolders/{safe_folder}/messages",
                 params={
                     "$top": count,
                     "$select": "id,subject,from,toRecipients,ccRecipients,receivedDateTime,body,isRead,hasAttachments",
@@ -254,6 +258,55 @@ class OutlookGraphClient:
             has_attachments=msg.get("hasAttachments", False),
         )
     
+    def _escape_odata_string(self, value: str) -> str:
+        """Escape string for OData filter to prevent injection.
+        
+        Args:
+            value: String to escape
+            
+        Returns:
+            Escaped string
+        """
+        # Escape single quotes by doubling them
+        return value.replace("'", "''")
+    
+    def _validate_folder(self, folder: str) -> str:
+        """Validate folder name to prevent path traversal.
+        
+        Args:
+            folder: Folder name
+            
+        Returns:
+            Validated folder name
+            
+        Raises:
+            ValueError: If folder name is invalid
+        """
+        # Block path traversal attempts
+        if ".." in folder or "/" in folder or "\\" in folder:
+            raise ValueError("Invalid folder name")
+        # Block other dangerous characters
+        if any(c in folder for c in ["<", ">", "|", "&", ";", "`", "$", "(", ")"]):
+            raise ValueError("Invalid folder name")
+        return folder
+    
+    def _validate_uid(self, uid: str) -> str:
+        """Validate email UID to prevent injection.
+        
+        Args:
+            uid: Email UID
+            
+        Returns:
+            Validated UID
+            
+        Raises:
+            ValueError: If UID is invalid
+        """
+        # Block dangerous characters
+        if any(c in uid for c in ["<", ">", "|", "&", ";", "`", "$", "(", ")", "/", "\\", " "]):
+            raise ValueError("Invalid email UID")
+        return uid
+    
     def search(self, query: str, folder: str = "INBOX") -> List[Email]:
         """Search emails.
         
@@ -264,12 +317,15 @@ class OutlookGraphClient:
         Returns:
             List of Email objects
         """
+        # Escape query to prevent OData injection
+        escaped_query = self._escape_odata_string(query)
+        
         try:
             result = self._make_request(
                 "GET",
                 f"/me/mailFolders/{folder}/messages",
                 params={
-                    "$filter": f"contains(subject,'{query}') or contains(body/content,'{query}')",
+                    "$filter": f"contains(subject,'{escaped_query}') or contains(body/content,'{escaped_query}')",
                     "$select": "id,subject,from,toRecipients,ccRecipients,receivedDateTime,body,isRead,hasAttachments",
                     "$orderby": "receivedDateTime desc",
                 },

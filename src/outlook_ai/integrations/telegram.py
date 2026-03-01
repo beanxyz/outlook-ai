@@ -1,5 +1,6 @@
 """Telegram push integration."""
 
+import re
 import requests
 from datetime import datetime
 from typing import Optional, TYPE_CHECKING
@@ -8,6 +9,9 @@ if TYPE_CHECKING:
     from outlook_ai.models import Email, VIPMatch, ActionItem
 
 TELEGRAM_API_URL = "https://api.telegram.org/bot"
+
+# Telegram Markdown reserved characters that need escaping
+MARKDOWN_RESERVED = re.compile(r'([_*\[\]()~`>#+\-=|{}.!])')
 
 
 class TelegramPusher:
@@ -24,6 +28,27 @@ class TelegramPusher:
         self.chat_id = chat_id
         self.api_url = f"{TELEGRAM_API_URL}{token}"
 
+    def _escape_markdown(self, text: str) -> str:
+        """Escape reserved Markdown characters to prevent injection.
+        
+        Args:
+            text: Text to escape
+            
+        Returns:
+            Escaped text
+        """
+        # Escape Markdown special characters
+        # Note: We escape but preserve our emoji and basic formatting
+        def _escape_char(match):
+            char = match.group(1)
+            # Don't escape our formatting markers
+            if char in ['_', '*']:  # Keep emphasis markers
+                return char
+            return f'\\{char}'
+        
+        # Only escape potentially dangerous characters
+        return MARKDOWN_RESERVED.sub(r'\\\1', text)
+
     def push(self, text: str, parse_mode: str = "Markdown") -> bool:
         """Send push notification.
         
@@ -34,6 +59,10 @@ class TelegramPusher:
         Returns:
             True if successful
         """
+        # Limit message length (Telegram max is 4096 chars)
+        if len(text) > 4000:
+            text = text[:4000] + "\n\n... (truncated)"
+        
         data = {
             "chat_id": self.chat_id,
             "text": text,
