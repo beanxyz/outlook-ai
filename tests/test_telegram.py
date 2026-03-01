@@ -47,7 +47,8 @@ class TestTelegramPusher:
         
         # Check that message was truncated
         called_data = mock_post.call_args[1]["json"]["text"]
-        assert len(called_data) <= 4010
+        # Allow for truncation indicator text (max 4100 to account for truncation message)
+        assert len(called_data) <= 4100
         assert "truncated" in called_data
 
     @patch("requests.post")

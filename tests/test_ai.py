@@ -29,15 +29,18 @@ def test_email_model():
 
 def test_classify_spam():
     """Test spam classification."""
+    from datetime import datetime
+    
     ai = OllamaEmailAI()
     
-    # Test with casino email
+    # Test with casino email - use rule-based classification (no AI)
     email = Email(
         uid="1",
         subject="🎰 Win big money!",
         sender="casino@spam.com",
-        date=None,
+        date=datetime.now(),
     )
     
-    classification = ai.classify(email)
+    # Use rule-based only (no AI to avoid Ollama dependency)
+    classification = ai.classify(email, use_ai=False)
     assert classification.category == EmailCategory.SPAM
