@@ -12,7 +12,6 @@ from rich import box
 from rich.markdown import Markdown
 
 from outlook_ai.config import Config, get_config
-from outlook_ai.mail import OutlookMailClient
 from outlook_ai.graph import OutlookGraphClient
 from outlook_ai.ai import OllamaEmailAI
 from outlook_ai.cache import EmailCache
@@ -31,9 +30,8 @@ app = typer.Typer(
     add_completion=False,
 )
 
-# Global client instances
+# Global client instance
 _graph_client: Optional[OutlookGraphClient] = None
-_imap_client: Optional[OutlookMailClient] = None
 
 
 def get_graph_client() -> OutlookGraphClient:
@@ -46,20 +44,6 @@ def get_graph_client() -> OutlookGraphClient:
             authority="https://login.microsoftonline.com/consumers"
         )
     return _graph_client
-
-
-def get_imap_client() -> OutlookMailClient:
-    """Get or create IMAP client."""
-    global _imap_client
-    if _imap_client is None:
-        config = get_config()
-        _imap_client = OutlookMailClient(
-            email=config.email,
-            app_password=config.app_password,
-            host=config.imap_host,
-            port=config.imap_port,
-        )
-    return _imap_client
 
 
 def get_ai_client() -> OllamaEmailAI:
@@ -78,20 +62,21 @@ def get_cache_client() -> EmailCache:
     return EmailCache(db_path=str(config.get_cache_db_path()))
 
 
-def get_clients() -> tuple[Union[OutlookGraphClient, OutlookMailClient], OllamaEmailAI, EmailCache, Config]:
+def get_clients() -> tuple[OutlookGraphClient, OllamaEmailAI, EmailCache, Config]:
     """Initialize all clients and return them.
     
-    Uses Graph API if AZURE_CLIENT_ID is configured, otherwise uses IMAP.
+    Uses Microsoft Graph API with OAuth authentication.
     Token is fetched lazily when needed (silent first, then interactive if required).
     """
     config = get_config()
     
-    if config.use_graph_api:
-        mail = get_graph_client()
-        # Token will be fetched lazily in _make_request() using get_token()
-        # which tries silent acquisition first, then falls back to interactive
-    else:
-        mail = get_imap_client()
+    if not config.use_graph_api:
+        console.print("[red]Error: AZURE_CLIENT_ID is required. Please configure in .env[/red]")
+        raise typer.Exit(1)
+    
+    mail = get_graph_client()
+    # Token will be fetched lazily in _make_request() using get_token()
+    # which tries silent acquisition first, then falls back to interactive
     
     ai = get_ai_client()
     cache = get_cache_client()

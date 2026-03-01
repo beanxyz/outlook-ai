@@ -26,8 +26,7 @@ outlook-ai/
 │   ├── prompts.py            # AI 提示词模板
 │   ├── utils.py              # 工具函数
 │   │
-│   ├── mail.py               # IMAP 邮件客户端（旧版）
-│   ├── graph.py              # Microsoft Graph API 客户端（新版）
+│   ├── graph.py              # Microsoft Graph API 客户端
 │   ├── ai.py                 # Ollama AI 处理模块
 │   ├── cache.py              # SQLite 缓存
 │   ├── vip.py                # VIP 规则引擎
@@ -40,7 +39,6 @@ outlook-ai/
 │
 ├── tests/                    # 测试目录
 │   ├── test_ai.py
-│   ├── test_mail.py
 │   ├── test_cache.py
 │   ├── test_graph.py
 │   ├── test_telegram.py
