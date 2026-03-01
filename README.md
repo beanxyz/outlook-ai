@@ -1,3 +1,4 @@
+
 # outlook-ai
 
 AI-powered Outlook.com CLI assistant using Ollama
@@ -11,6 +12,8 @@ AI-powered Outlook.com CLI assistant using Ollama
 - 🌐 Email translation
 - 🔍 Smart semantic search
 - 📋 Extract action items from emails
+- 📱 Telegram push notifications (VIP alerts + daily summary)
+- ⏰ VIP rule engine (school/payment notifications)
 
 ## Installation
 
@@ -43,6 +46,23 @@ Set these environment variables:
 ```
 AZURE_CLIENT_ID=your-client-id
 OUTLOOK_EMAIL=your@live.com
+```
+
+### Telegram Push (Optional)
+
+1. Create a Telegram Bot:
+   - Open @BotFather on Telegram
+   - Send /newbot to create a new bot
+   - Copy the Bot Token
+
+2. Get your Chat ID:
+   - Open @userinfobot on Telegram
+   - Send /start to get your Chat ID
+
+3. Add to .env:
+```
+TELEGRAM_TOKEN=your_bot_token
+TELEGRAM_CHAT_ID=your_chat_id
 ```
 
 ## Usage
@@ -85,11 +105,44 @@ outlook-ai folders
 | `folders` | List email folders |
 | `models` | List available Ollama models |
 | `config` | Configure settings |
+| `run-now` | Full scan with push notifications |
+
+## Push Notifications (run-now)
+
+The `run-now` command performs a full email scan and sends push notifications:
+
+```bash
+# Run with default settings (3 days, 30 emails)
+outlook-ai run-now
+
+# Custom scan range
+outlook-ai run-now -d 7 -c 50
+```
+
+### Push Triggers:
+
+| Trigger | Description |
+|---------|-------------|
+| **VIP Email** | School/payment emails → Immediate Telegram push |
+| **Daily Summary** | AI summary + stats → Telegram push |
+
+### VIP Rules:
+
+The VIP engine automatically detects:
+- 🏫 School emails (Oakhill, Seesaw, Compass, etc.)
+- 💰 Payment notifications (Flexischools, invoices, etc.)
 
 ## Requirements
 
 - Python 3.10+
 - Ollama running locally (http://localhost:11434)
+
+## Dependencies
+
+- typer, rich, requests
+- msal (for Graph API)
+- pydantic, python-dotenv
+- pyyaml (for VIP rules config)
 
 ## License
 
