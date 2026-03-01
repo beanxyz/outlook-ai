@@ -19,6 +19,7 @@ class Config(BaseModel):
     # Azure/Graph API settings
     azure_client_id: str = ""
     azure_client_secret: str = ""
+    azure_tenant_id: str = ""
     
     # Ollama settings
     ollama_model: str = "qwen2.5:14b"
@@ -109,6 +110,7 @@ def get_config() -> Config:
             app_password=os.getenv("APP_PASSWORD", ""),
             azure_client_id=os.getenv("AZURE_CLIENT_ID", ""),
             azure_client_secret=os.getenv("AZURE_CLIENT_SECRET", ""),
+            azure_tenant_id=os.getenv("AZURE_TENANT_ID", ""),
             ollama_model=os.getenv("OLLAMA_MODEL", "qwen2.5:14b"),
             ollama_base_url=os.getenv("OLLAMA_BASE_URL", "http://localhost:11434"),
             ollama_timeout=int(os.getenv("OLLAMA_TIMEOUT", "120")),

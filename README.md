@@ -1,11 +1,10 @@
-
 # outlook-ai
 
 AI-powered Outlook.com CLI assistant using Ollama
 
 ## Features
 
-- 📧 Read and manage Outlook emails via IMAP or Microsoft Graph API
+- 📧 Read and manage Outlook emails via Microsoft Graph API
 - 🤖 AI-powered email summarization using local Ollama models
 - 🏷️ Automatic email classification
 - ✍️ AI draft replies
@@ -26,25 +25,34 @@ cd outlook-ai
 pip install -e .
 ```
 
-## Configuration
+## Configuration (Microsoft Graph API)
 
-### Option 1: IMAP (App Password)
+1. Register an Azure AD Application:
+   - Go to https://portal.azure.com/#view/Microsoft_AAD_IAM/ActiveDirectoryMenuBlade/RegisteredApps
+   - Click "New registration"
+   - Name: outlook-ai
+   - Supported account types: Accounts in any organizational directory (multitenant)
+   - Redirect URI: http://localhost
 
-1. Create an app password for your Microsoft account:
-   - Go to https://account.microsoft.com/security
-   - Enable 2FA if not already enabled
-   - Create an app password
+2. Add API Permissions:
+   - Go to your app → API permissions
+   - Add Microsoft Graph → Delegated permissions
+   - Add: `Mail.Read`, `Mail.ReadWrite`, `User.Read`
 
-2. Set up configuration:
-```bash
-outlook-ai config --email your@live.com --password xxxx-xxxx-xxxx-xxxx --save
-```
+3. Create Client Secret:
+   - Go to Certificates & secrets
+   - New client secret
+   - Copy the secret value (not the ID)
 
-### Option 2: Microsoft Graph API (OAuth)
+4. Get your Tenant ID:
+   - Go to Microsoft Entra admin center
+   - Copy your Tenant ID
 
-Set these environment variables:
+5. Configure .env:
 ```
 AZURE_CLIENT_ID=your-client-id
+AZURE_CLIENT_SECRET=your-client-secret
+AZURE_TENANT_ID=your-tenant-id
 OUTLOOK_EMAIL=your@live.com
 ```
 
@@ -88,6 +96,9 @@ outlook-ai translate <uid> --lang en
 
 # List folders
 outlook-ai folders
+
+# Run full scan with push notifications
+outlook-ai run-now
 ```
 
 ## Commands
@@ -132,15 +143,18 @@ The VIP engine automatically detects:
 - 🏫 School emails (Oakhill, Seesaw, Compass, etc.)
 - 💰 Payment notifications (Flexischools, invoices, etc.)
 
+You can customize rules in `~/.outlook-ai/vip_rules.yaml`.
+
 ## Requirements
 
 - Python 3.10+
 - Ollama running locally (http://localhost:11434)
+- Microsoft 365 account
 
 ## Dependencies
 
 - typer, rich, requests
-- msal (for Graph API)
+- msal (for Microsoft Graph API)
 - pydantic, python-dotenv
 - pyyaml (for VIP rules config)
 
