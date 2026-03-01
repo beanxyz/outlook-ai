@@ -257,16 +257,84 @@ class OllamaEmailAI:
             reason="个人邮件",
         )
     
-    def classify(self, email: Email) -> EmailClassification:
-        """Classify an email.
+    def _classify_by_ai(self, email: Email) -> EmailClassification:
+        """Classify email using Ollama AI.
         
         Args:
             email: Email object
             
         Returns:
+            EmailClassification object, or None if failed
+        """
+        body_preview = truncate_string(email.body_text, 500)
+        
+        prompt = get_prompt(
+            "classify",
+            sender=email.sender,
+            subject=email.subject,
+            body_preview=body_preview,
+        )
+        
+        try:
+            response = self._call_api(prompt, temperature=0.3)
+            
+            # Try to parse JSON response
+            try:
+                data = json.loads(response)
+                category_str = data.get("category", "personal").lower()
+                priority_str = data.get("priority", "low").lower()
+                
+                # Map category string to enum
+                category_map = {
+                    "important": EmailCategory.IMPORTANT,
+                    "work": EmailCategory.WORK,
+                    "personal": EmailCategory.PERSONAL,
+                    "subscription": EmailCategory.SUBSCRIPTION,
+                    "promotion": EmailCategory.PROMOTION,
+                    "spam": EmailCategory.SPAM,
+                    "bill": EmailCategory.BILL,
+                    "notification": EmailCategory.NOTIFICATION,
+                }
+                category = category_map.get(category_str, EmailCategory.PERSONAL)
+                
+                # Map priority string to enum
+                priority_map = {
+                    "high": Priority.HIGH,
+                    "medium": Priority.MEDIUM,
+                    "low": Priority.LOW,
+                }
+                priority = priority_map.get(priority_str, Priority.LOW)
+                
+                return EmailClassification(
+                    category=category,
+                    priority=priority,
+                    reason=data.get("reason", "AI分类"),
+                )
+            except json.JSONDecodeError:
+                logger.warning(f"Could not parse AI classification JSON: {response}")
+                return None
+                
+        except Exception as e:
+            logger.warning(f"AI classification failed: {e}")
+            return None
+    
+    def classify(self, email: Email, use_ai: bool = True) -> EmailClassification:
+        """Classify an email.
+        
+        Args:
+            email: Email object
+            use_ai: Whether to try AI classification first (default: True)
+            
+        Returns:
             EmailClassification object
         """
-        # Use fast rule-based classification
+        # Try AI classification first if enabled
+        if use_ai:
+            ai_result = self._classify_by_ai(email)
+            if ai_result is not None:
+                return ai_result
+        
+        # Fallback to rule-based classification
         return self._classify_by_rules(email)
     
     def draft_reply(self, email: Email, intent: str = "") -> str:
