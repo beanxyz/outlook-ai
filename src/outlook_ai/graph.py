@@ -224,6 +224,7 @@ class OutlookGraphClient:
                 f"/me/mailFolders/{folder}/messages",
                 params={
                     "$filter": f"receivedDateTime ge {since_str}",
+                    "$top": 100,
                     "$select": "id,subject,from,toRecipients,ccRecipients,receivedDateTime,body,isRead,hasAttachments",
                     "$orderby": "receivedDateTime desc",
                 },
