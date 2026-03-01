@@ -14,9 +14,9 @@ from outlook_ai.models import Email
 
 logger = logging.getLogger(__name__)
 
-# Token cache file location
+# MSAL cache file location (default location)
 CACHE_DIR = pathlib.Path.home() / ".outlook-ai"
-CACHE_FILE = CACHE_DIR / "token_cache.json"
+MSAL_CACHE_FILE = CACHE_DIR / "msal_cache.bin"
 
 
 class OutlookGraphClient:
@@ -39,8 +39,14 @@ class OutlookGraphClient:
         self.client_id = client_id
         self.authority = authority
         
-        # Load token cache from disk if exists
-        cache = self._load_cache()
+        # Load existing MSAL cache if available
+        cache = msal.TokenCache()
+        if MSAL_CACHE_FILE.exists():
+            try:
+                cache.deserialize(open(MSAL_CACHE_FILE, "rb").read())
+                logger.info("Loaded MSAL cache from %s", MSAL_CACHE_FILE)
+            except Exception as e:
+                logger.warning("Failed to load MSAL cache: %s", e)
         
         self._app = msal.PublicClientApplication(
             client_id=client_id,
@@ -49,26 +55,15 @@ class OutlookGraphClient:
         )
         self._token: Optional[str] = None
     
-    def _load_cache(self) -> msal.TokenCache:
-        """Load token cache from disk."""
-        cache = msal.TokenCache()
-        if CACHE_FILE.exists():
-            try:
-                cache.deserialize(open(CACHE_FILE, "r").read())
-                logger.info("Loaded token cache from %s", CACHE_FILE)
-            except Exception as e:
-                logger.warning("Failed to load token cache: %s", e)
-        return cache
-    
     def _save_cache(self) -> None:
-        """Save token cache to disk."""
+        """Save MSAL cache to disk."""
         try:
             CACHE_DIR.mkdir(parents=True, exist_ok=True)
             cache_data = self._app.token_cache.serialize()
-            open(CACHE_FILE, "w").write(cache_data)
-            logger.info("Saved token cache to %s", CACHE_FILE)
+            open(MSAL_CACHE_FILE, "wb").write(cache_data)
+            logger.info("Saved MSAL cache to %s", MSAL_CACHE_FILE)
         except Exception as e:
-            logger.warning("Failed to save token cache: %s", e)
+            logger.warning("Failed to save MSAL cache: %s", e)
     
     def __enter__(self):
         """Enter context manager."""
