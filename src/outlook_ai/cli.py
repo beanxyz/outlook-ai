@@ -80,33 +80,14 @@ def get_clients() -> tuple[Union[OutlookGraphClient, OutlookMailClient], OllamaE
     """Initialize all clients and return them.
     
     Uses Graph API if AZURE_CLIENT_ID is configured, otherwise uses IMAP.
+    Token is fetched lazily when needed (silent first, then interactive if required).
     """
     config = get_config()
     
     if config.use_graph_api:
         mail = get_graph_client()
-        # Try to get token silently first, only prompt if needed
-        try:
-            # Check if we already have a valid token
-            if mail._token is None:
-                # Try silent token acquisition
-                accounts = mail._app.get_accounts() if mail._app else []
-                if accounts:
-                    result = mail._app.acquire_token_silent(
-                        scopes=mail.scopes,
-                        account=accounts[0]
-                    )
-                    if "access_token" in result:
-                        mail._token = result["access_token"]
-                    else:
-                        # Token expired or invalid, need to re-authenticate
-                        mail.get_token_interactive()
-                else:
-                    # No cached account, need to authenticate
-                    mail.get_token_interactive()
-        except Exception as e:
-            # Fallback to interactive login
-            mail.get_token_interactive()
+        # Token will be fetched lazily in _make_request() using get_token()
+        # which tries silent acquisition first, then falls back to interactive
     else:
         mail = get_imap_client()
     

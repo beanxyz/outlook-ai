@@ -47,8 +47,24 @@ class OutlookGraphClient:
         self._token = None
         return False
     
+    def get_token(self) -> str:
+        """Get token silently first, then interactively if needed."""
+        # Try silent token acquisition first
+        accounts = self._app.get_accounts()
+        if accounts:
+            result = self._app.acquire_token_silent(
+                scopes=self.scopes,
+                account=accounts[0]
+            )
+            if "access_token" in result:
+                self._token = result["access_token"]
+                return self._token
+        
+        # If silent fails, use interactive
+        return self.get_token_interactive()
+    
     def get_token_interactive(self) -> str:
-        """Get token interactively."""
+        """Get token interactively (opens browser)."""
         result = self._app.acquire_token_interactive(scopes=self.scopes)
         if "access_token" in result:
             self._token = result["access_token"]
@@ -77,7 +93,7 @@ class OutlookGraphClient:
             Response JSON
         """
         if not self._token:
-            self.get_token_interactive()
+            self.get_token()
         
         url = f"{self.GRAPH_API_BASE}{endpoint}"
         headers = kwargs.pop("headers", {})
