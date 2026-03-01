@@ -213,7 +213,8 @@ class OutlookGraphClient:
         Returns:
             List of Email objects
         """
-        since_str = since.isoformat()
+        # Format date as ISO 8601 with time
+        since_str = since.isoformat() + "T00:00:00Z"
         
         try:
             result = self._make_request(
@@ -226,6 +227,10 @@ class OutlookGraphClient:
                 },
             )
             
+            if not result:
+                logger.warning("Empty response from Graph API")
+                return []
+            
             emails = []
             for msg in result.get("value", []):
                 email_obj = self._parse_message(msg)
@@ -234,7 +239,7 @@ class OutlookGraphClient:
             return emails
             
         except Exception as e:
-            logger.error(f"Error fetching emails by date: {e}")
+            logger.error("Error fetching emails by date: %s", e)
             return []
     
     def _parse_message(self, msg: dict) -> Email:
